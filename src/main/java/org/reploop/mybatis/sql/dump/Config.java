@@ -2,13 +2,9 @@ package org.reploop.mybatis.sql.dump;
 
 import org.apache.ibatis.io.Resources;
 import org.mybatis.spring.SqlSessionFactoryBean;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 
@@ -16,8 +12,9 @@ import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Configuration
 public class Config {
@@ -25,8 +22,6 @@ public class Config {
     private String workingDirectory;
     @Value("${configLocation:classpath:mybatis/mybatis-config.xml}")
     private Resource mybatisConfig;
-    @Autowired
-    Environment environment;
 
     @Bean
     public DataSource dummy() {
@@ -77,52 +72,9 @@ public class Config {
             }
         }
         setClassLoader(cps);
-        var resources = files.stream()
-                .map(FileSystemResource::new)
-                .collect(Collectors.toList());
+        var resources = files.stream().map(FileSystemResource::new).toList();
         return resources.toArray(new Resource[0]);
     }
-
-    private List<Path> load(String cp) throws IOException {
-        Path dir = Paths.get(cp);
-        List<Path> classes = new ArrayList<>();
-        Files.walkFileTree(dir, new FileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                String filename = file.getFileName().toString();
-                if (filename.endsWith(".class")) {
-                    classes.add(file);
-                }
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                return FileVisitResult.CONTINUE;
-            }
-        });
-        return classes;
-    }
-
-    private void sqlTable(Set<String> cps) throws ClassNotFoundException, IOException {
-        String className = "org.mybatis.dynamic.sql.SqlTable";
-        Class<?> clazz = Class.forName(className);
-        for (String cp : cps) {
-            List<Path> paths = load(cp);
-        }
-    }
-
-    private MapperClassLoader mcl;
 
     private void setClassLoader(Set<String> cps) {
         ClassLoader parent = Resources.getDefaultClassLoader();
@@ -131,13 +83,6 @@ public class Config {
         }
         MapperClassLoader mcl = new MapperClassLoader(parent, cps);
         Resources.setDefaultClassLoader(mcl);
-        Properties properties = new Properties();
-        properties.put("mcl", mcl);
-        PropertiesPropertySource pps = new PropertiesPropertySource("mybatis-sql-dump", properties);
-        if (environment instanceof ConfigurableEnvironment ce) {
-            ce.getPropertySources().addFirst(pps);
-        }
-        this.mcl = mcl;
     }
 
     @Bean

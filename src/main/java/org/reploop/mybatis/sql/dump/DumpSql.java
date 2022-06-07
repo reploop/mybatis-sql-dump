@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -65,12 +66,10 @@ public class DumpSql implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        notNull(bean, "");
+        notNull(bean, "Session factory bean is required.");
         var factory = bean.getObject();
         assert factory != null;
         var conf = factory.getConfiguration();
-        var mappers = conf.getMapperRegistry().getMappers();
-        System.out.println(mappers);
         Collection<String> resultMapNames = conf.getResultMapNames();
         Map<Class<?>, ResultMap> typedMap = resultMapNames.stream()
                 .filter(this::isFullName)
@@ -224,6 +223,12 @@ public class DumpSql implements InitializingBean {
                     val = l64 + 1;
                 } else if (val instanceof Boolean bi) {
                     val = !bi;
+                } else if (val instanceof Double d64) {
+                    val = d64 + 1;
+                } else if (val instanceof BigDecimal bd) {
+                    val = bd.add(BigDecimal.ONE);
+                } else if (val instanceof Float f32) {
+                    val = f32 + 1;
                 }
             }
             if (null == val) {
@@ -333,6 +338,16 @@ public class DumpSql implements InitializingBean {
                                 field.set(ins, Boolean.TRUE);
                             } else if (ft.isAssignableFrom(boolean.class)) {
                                 field.setBoolean(ins, true);
+                            } else if (ft.isAssignableFrom(BigDecimal.class)) {
+                                field.set(ins, BigDecimal.valueOf(0L));
+                            } else if (ft.isAssignableFrom(Long.class)) {
+                                field.set(ins, 0L);
+                            } else if (ft.isAssignableFrom(long.class)) {
+                                field.setLong(ins, 0);
+                            } else if (ft.isAssignableFrom(Double.class)) {
+                                field.set(ins, Double.parseDouble("0.0"));
+                            } else if (ft.isAssignableFrom(double.class)) {
+                                field.setDouble(ins, 0.0);
                             }
                         }
                     } else {

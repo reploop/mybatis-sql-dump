@@ -3,5 +3,13 @@
         PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
-
+    <typeHandlers>
+        <typeHandler handler="com.ty.mybatis.handler.CalendarTypeHandler" javaType="java.util.Calendar"
+                     jdbcType="TIMESTAMP"/>
+    </typeHandlers>
+    <plugins>
+        <plugin interceptor="com.ty.mybatis.paginator.OffsetLimitInterceptor">
+            <property name="dialectClass" value="com.ty.mybatis.paginator.dialect.MySQLDialect"/>
+        </plugin>
+    </plugins>
 </configuration>

@@ -79,9 +79,10 @@ public class Config {
     private void setClassLoader(Set<String> cps) {
         ClassLoader parent = Resources.getDefaultClassLoader();
         if (null == parent) {
-            parent = Config.class.getClassLoader();
+            parent = Thread.currentThread().getContextClassLoader();
         }
         MapperClassLoader mcl = new MapperClassLoader(parent, cps);
+        //Thread.currentThread().setContextClassLoader(mcl);
         Resources.setDefaultClassLoader(mcl);
     }
 

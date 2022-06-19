@@ -4,12 +4,6 @@
         "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
     <typeHandlers>
-        <typeHandler handler="com.ty.mybatis.handler.CalendarTypeHandler" javaType="java.util.Calendar"
-                     jdbcType="TIMESTAMP"/>
+        <typeHandler handler="org.reploop.mybatis.sql.handler.CalendarTypeHandler"/>
     </typeHandlers>
-    <plugins>
-        <plugin interceptor="com.ty.mybatis.paginator.OffsetLimitInterceptor">
-            <property name="dialectClass" value="com.ty.mybatis.paginator.dialect.MySQLDialect"/>
-        </plugin>
-    </plugins>
 </configuration>

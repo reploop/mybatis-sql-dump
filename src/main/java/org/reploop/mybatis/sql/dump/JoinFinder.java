@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static org.reploop.mybatis.sql.util.CommentUtils.stripEscape;
+
 @Component
 public class JoinFinder {
     private static final Logger LOGGER = LoggerFactory.getLogger(JoinFinder.class);
@@ -51,15 +53,15 @@ public class JoinFinder {
             total.addAll(aliasTable.keySet());
             if (total.size() == alias.size() && alias.size() == aliasTable.size()) {
                 LOGGER.info("SQL has join: {}", sql);
-                while (cs > 0 && cs % 2 == 0) {
+                while (cs > 0) {
                     Column right = columns.pop();
                     String rt = aliasTable.get(tableAlias(right));
                     Column left = columns.pop();
                     String lt = aliasTable.get(tableAlias(left));
-                    Match match = new Match(lt, left.getColumnName(), rt, right.getColumnName());
+                    Match match = new Match(lt, stripEscape(left.getColumnName()), rt, stripEscape(right.getColumnName()));
                     LOGGER.info("Found a match {}", match);
                     matches.add(match);
-                    cs /= 2;
+                    cs -= 2;
                 }
             } else {
                 LOGGER.info("SQL has no join: {}", sql);

@@ -1,4 +1,4 @@
-<table border="0" cellborder="1" cellspacing="0" cellpadding="1">
+<table border="0" cellborder="1" cellspacing="0" cellpadding="4">
     <tr>
         <td><b>${name}</b></td>
     </tr>

@@ -3,29 +3,40 @@ package org.reploop.mybatis.sql.dump;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.util.TablesNamesFinder;
-import org.apache.commons.lang.StringUtils;
 import org.apache.ibatis.mapping.*;
-import org.apache.ibatis.ognl.*;
+import org.apache.ibatis.ognl.BooleanExpression;
+import org.apache.ibatis.ognl.Ognl;
+import org.apache.ibatis.ognl.OgnlException;
+import org.apache.ibatis.parsing.GenericTokenParser;
+import org.apache.ibatis.parsing.TokenHandler;
 import org.apache.ibatis.scripting.xmltags.*;
 import org.apache.ibatis.session.Configuration;
 import org.mybatis.dynamic.sql.SqlTable;
 import org.mybatis.spring.SqlSessionFactoryBean;
+import org.reploop.mybatis.sql.util.CommentUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.Resource;
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.CharacterIterator;
+import java.text.StringCharacterIterator;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -33,12 +44,13 @@ import java.util.stream.Collectors;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardOpenOption.*;
+import static org.reploop.mybatis.sql.util.CommentUtils.trimSql;
 import static org.springframework.util.Assert.notNull;
 
 @Component
-public class DumpSql implements InitializingBean {
+public class DumpSql implements InitializingBean, ApplicationContextAware {
     private static final Logger LOGGER = LoggerFactory.getLogger(DumpSql.class);
-    @Resource
+    @Autowired
     private SqlSessionFactoryBean bean;
     @Value("${outputSql:/tmp/dump.sql}")
     private Path outputSql;
@@ -90,12 +102,30 @@ public class DumpSql implements InitializingBean {
         Map<Class<?>, Set<String>> typeTable = typeTableInsert(conf);
         List<String> all = new ArrayList<>();
         typeTableSelect(conf, all, typeTable);
-        Set<Class<?>> types = new HashSet<>();
-        types.addAll(typedMap.keySet());
-        types.addAll(typeTable.keySet());
-        sqlTable(typeTable, types);
-        diagram.generate(types, typedMap, typeTable, all);
+        //Set<Class<?>> types = new HashSet<>();
+        //types.addAll(typedMap.keySet());
+        //types.addAll(typeTable.keySet());
+        //sqlTable(typeTable, types);
+        all.addAll(read());
+        diagram.generate(all);
+
         output(all);
+    }
+
+    private List<String> read() {
+        List<String> lines = new ArrayList<>();
+        String loc = "classpath:/sql/ai.sql";
+        Resource resource = context.getResource(loc);
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(resource.getInputStream()))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while (null != (line = reader.readLine())) {
+                trimSql(lines, sb, line);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return lines;
     }
 
     @Autowired
@@ -112,7 +142,6 @@ public class DumpSql implements InitializingBean {
             }
         }
     }
-
 
     private void sqlTable(Map<Class<?>, Set<String>> typeTable, Set<Class<?>> types) throws IllegalAccessException {
         for (Class<?> type : types) {
@@ -139,12 +168,6 @@ public class DumpSql implements InitializingBean {
         }
     }
 
-    private Object dss(DynamicSqlSource dss) throws NoSuchFieldException, IllegalAccessException, OgnlException {
-        Field field = DynamicSqlSource.class.getField("rootSqlNode");
-        SqlNode sqlNode = (SqlNode) field.get(dss);
-        return sqlNode(null, sqlNode);
-    }
-
     private <T, K extends SqlNode> T contents(K node) throws NoSuchFieldException, IllegalAccessException {
         return getFieldValue("contents", node);
     }
@@ -155,19 +178,45 @@ public class DumpSql implements InitializingBean {
         return (T) cf.get(node);
     }
 
-    private Map<String, Object> sqlNode(SqlNode parent, SqlNode node) throws NoSuchFieldException, IllegalAccessException, OgnlException {
+    private Map<String, Object> sqlNode(SqlNode node) throws NoSuchFieldException, IllegalAccessException, OgnlException {
         Map<String, Object> context = new HashMap<>();
-        sqlNode(parent, node, context);
+        sqlNode(node, context);
         return context;
     }
 
-    private void sqlNode(SqlNode parent, SqlNode node, Map<String, Object> context) throws NoSuchFieldException, IllegalAccessException, OgnlException {
+    private ApplicationContext context;
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        this.context = applicationContext;
+    }
+
+    private static class TokenCollector implements TokenHandler {
+        Set<String> tokens = new LinkedHashSet<>();
+
+        @Override
+        public String handleToken(String content) {
+            tokens.add(content);
+            return content;
+        }
+
+        public Set<String> getTokens() {
+            return tokens;
+        }
+    }
+
+    private GenericTokenParser createParser(TokenHandler handler) {
+        return new GenericTokenParser("${", "}", handler);
+    }
+
+    private void sqlNode(SqlNode node, Map<String, Object> context) throws NoSuchFieldException, IllegalAccessException, OgnlException {
         if (node instanceof MixedSqlNode msn) {
             List<SqlNode> contents = contents(msn);
             for (SqlNode content : contents) {
-                sqlNode(node, content, context);
+                sqlNode(content, context);
             }
         } else if (node instanceof ForEachSqlNode fes) {
+            // We need a list that is not empty, element does not matter, any one will do. so let it be null.
             String name = getFieldValue("collectionExpression", fes);
             List<Object> it = new ArrayList<>();
             it.add(null);
@@ -175,76 +224,80 @@ public class DumpSql implements InitializingBean {
         } else if (node instanceof StaticTextSqlNode sts) {
             //NO-OP
         } else if (node instanceof TextSqlNode tsn) {
+            if (tsn.isDynamic()) {
+                String text = getFieldValue("text", tsn);
+                TokenCollector collector = new TokenCollector();
+                var parser = createParser(collector);
+                parser.parse(text);
+                Set<String> tokens = collector.tokens;
+                StringBuilder sb = new StringBuilder();
+                StringCharacterIterator it = new StringCharacterIterator(text);
+                String prev;
+                String curr = null;
+                int idx = 0;
+                Object[] args = new Object[0];
+                for (char c = it.first(); c != CharacterIterator.DONE; c = it.next()) {
+                    if (Character.isAlphabetic(c) || Character.isDigit(c) || c == '.' || c == '_') {
+                        sb.append(c);
+                    } else if (sb.length() > 0) {
+                        prev = curr;
+                        curr = sb.toString();
+                        if ("from".equalsIgnoreCase(curr)) {
+                            args = new Object[]{"tb_placeholder"};
+                            idx = 0;
+                        } else if ("by".equalsIgnoreCase(curr) && "order".equalsIgnoreCase(prev)) {
+                            args = new Object[]{"col_placeholder", "asc", "desc"};
+                            idx = 0;
+                        } else if ("limit".equalsIgnoreCase(curr)) {
+                            args = new Object[]{1, 20};
+                            idx = 0;
+                        } else if ("having".equalsIgnoreCase(curr)) {
+                            args = new Object[]{"count(1) > 0"};
+                            idx = 0;
+                        } else if ("in".equalsIgnoreCase(curr)) {
+                            args = new Object[]{0};
+                            idx = 0;
+                        } else if ("offset".equalsIgnoreCase(curr)) {
+                            args = new Object[]{0, 20};
+                            idx = 0;
+                        }
+                        if (tokens.contains(curr)) {
+                            Object val = NULL;
+                            if (idx < args.length) {
+                                val = args[idx++];
+                            }
+                            if (curr.equals("orderType") || curr.equals("order_by_record_creation_date")) {
+                                val = args[args.length - 1];
+                            }
+                            context.put(curr, val);
+                        }
+                        sb.setLength(0);
+                    }
+                }
+            }
         } else if (node instanceof ChooseSqlNode csn) {
+            SqlNode defaultSqlNode = getFieldValue("defaultSqlNode", csn);
+            sqlNode(defaultSqlNode, context);
+            List<SqlNode> ifSqlNodes = getFieldValue("ifSqlNodes", csn);
+            for (SqlNode isn : ifSqlNodes) {
+                sqlNode(isn, context);
+            }
         } else if (node instanceof SetSqlNode ssn) {
         } else if (node instanceof IfSqlNode isn) {
             String test = getFieldValue("test", isn);
             Object o = Ognl.parseExpression(test);
             if (o instanceof BooleanExpression be) {
-                //prop(be, context);
+                LOGGER.info("test expression {}", test);
+                traverse.probe(be, context);
             }
             SqlNode contents = getFieldValue("contents", isn);
-            sqlNode(node, contents, context);
+            sqlNode(contents, context);
         }
     }
 
-    /**
-     * Assume Two operand operators
-     */
-    private void prop(BooleanExpression root, Map<String, Object> context) {
-        int count = root.jjtGetNumChildren();
-        String name = null;
-        Object val = null;
-        for (int i = 0; i < count; i++) {
-            Node n = root.jjtGetChild(i);
-            if (n instanceof ASTProperty prop) {
-                name = prop.toString();
-            } else if (n instanceof BooleanExpression sub) {
-                prop(sub, context);
-            } else if (n instanceof ASTConst c) {
-                val = c.getValue();
-            } else if (n instanceof ASTChain chain) {
+    private final OgnlTraverse traverse = new OgnlTraverse();
 
-            }
-        }
-        if (null != name) {
-            if (root instanceof ASTNotEq) {
-                if (null == val) {
-                    val = PLACEHOLDER;
-                } else if (val instanceof String s) {
-                    if (s.isEmpty()) {
-                        val = NOT_EMPTY;
-                    } else {
-                        val = EMPTY;
-                    }
-                } else if (val instanceof Integer i32) {
-                    val = i32 + 1;
-                } else if (val instanceof Long l64) {
-                    val = l64 + 1;
-                } else if (val instanceof Boolean bi) {
-                    val = !bi;
-                } else if (val instanceof Double d64) {
-                    val = d64 + 1;
-                } else if (val instanceof BigDecimal bd) {
-                    val = bd.add(BigDecimal.ONE);
-                } else if (val instanceof Float f32) {
-                    val = f32 + 1;
-                }
-            }
-            if (null == val) {
-                LOGGER.info("Wrong parameter {}", name);
-                val = PLACEHOLDER;
-            }
-            Object old = context.get(name);
-            if (null == old || old == PLACEHOLDER) {
-                context.put(name, val);
-            }
-        }
-    }
-
-    private static final Object PLACEHOLDER = new Object();
-    private static final String NOT_EMPTY = "__";
-    private static final String EMPTY = "";
+    private static final Object NULL = null;
 
     private void typeTableSelect(Configuration conf, List<String> all, Map<Class<?>, Set<String>> typeTable) {
         Collection<String> names = conf.getMappedStatementNames();
@@ -265,12 +318,12 @@ public class DumpSql implements InitializingBean {
                         try {
                             SqlNode root = getFieldValue("rootSqlNode", dss);
                             if (null != root) {
-                                params = sqlNode(null, root);
+                                params = sqlNode(root);
                             } else {
-                                LOGGER.info("Pure");
+                                LOGGER.error("Pure sql");
                             }
                         } catch (Exception e) {
-                            LOGGER.error("Cannot SQL NODE {}", params, e);
+                            LOGGER.error("Cannot get root sql node {}", params, e);
                         }
                     }
                     String sql = getSql(source, params);
@@ -309,50 +362,14 @@ public class DumpSql implements InitializingBean {
                 }
                 SqlSource source = statement.getSqlSource();
                 if (commandType == SqlCommandType.INSERT) {
-                    ParameterMap p = statement.getParameterMap();
-                    Class<?> type = p.getType();
-                    String pn;
+                    ParameterMap param = statement.getParameterMap();
+                    Class<?> type = param.getType();
                     // We can only get the element type of List or Set at runtime, so just ignore here.
                     // Only handle user defined class in package starts with com.
                     if (!customized(type)) {
                         continue;
                     }
-                    Object ins = newInstance(p.getType());
-                    if (null != ins) {
-                        // Try to set some value
-                        Field[] fields = type.getDeclaredFields();
-                        for (Field field : fields) {
-                            int m = field.getModifiers();
-                            if (Modifier.isStatic(m) || Modifier.isFinal(m)) {
-                                continue;
-                            }
-                            field.setAccessible(true);
-                            Class<?> ft = field.getType();
-                            if (ft.isAssignableFrom(String.class)) {
-                                field.set(ins, "_for_g_only");
-                            } else if (ft.isAssignableFrom(int.class)) {
-                                field.setInt(ins, 0);
-                            } else if (ft.isAssignableFrom(Integer.class)) {
-                                field.set(ins, 0);
-                            } else if (ft.isAssignableFrom(Boolean.class)) {
-                                field.set(ins, Boolean.TRUE);
-                            } else if (ft.isAssignableFrom(boolean.class)) {
-                                field.setBoolean(ins, true);
-                            } else if (ft.isAssignableFrom(BigDecimal.class)) {
-                                field.set(ins, BigDecimal.valueOf(0L));
-                            } else if (ft.isAssignableFrom(Long.class)) {
-                                field.set(ins, 0L);
-                            } else if (ft.isAssignableFrom(long.class)) {
-                                field.setLong(ins, 0);
-                            } else if (ft.isAssignableFrom(Double.class)) {
-                                field.set(ins, Double.parseDouble("0.0"));
-                            } else if (ft.isAssignableFrom(double.class)) {
-                                field.setDouble(ins, 0.0);
-                            }
-                        }
-                    } else {
-                        LOGGER.warn("Cannot new instance of {}", type);
-                    }
+                    Object ins = getObject(type);
                     String sql = getSql(source, ins);
                     if (isNullOrEmpty(sql)) {
                         continue;
@@ -362,6 +379,46 @@ public class DumpSql implements InitializingBean {
             }
         }
         return typeTable;
+    }
+
+    private Object getObject(Class<?> type) throws IllegalAccessException {
+        Object ins = newInstance(type);
+        if (null != ins) {
+            // Try to set some value
+            Field[] fields = type.getDeclaredFields();
+            for (Field field : fields) {
+                int m = field.getModifiers();
+                if (Modifier.isStatic(m) || Modifier.isFinal(m)) {
+                    continue;
+                }
+                field.setAccessible(true);
+                Class<?> ft = field.getType();
+                if (ft.isAssignableFrom(String.class)) {
+                    field.set(ins, "_for_sql_only");
+                } else if (ft.isAssignableFrom(int.class)) {
+                    field.setInt(ins, 0);
+                } else if (ft.isAssignableFrom(Integer.class)) {
+                    field.set(ins, 0);
+                } else if (ft.isAssignableFrom(Boolean.class)) {
+                    field.set(ins, Boolean.TRUE);
+                } else if (ft.isAssignableFrom(boolean.class)) {
+                    field.setBoolean(ins, true);
+                } else if (ft.isAssignableFrom(BigDecimal.class)) {
+                    field.set(ins, BigDecimal.valueOf(0L));
+                } else if (ft.isAssignableFrom(Long.class)) {
+                    field.set(ins, 0L);
+                } else if (ft.isAssignableFrom(long.class)) {
+                    field.setLong(ins, 0);
+                } else if (ft.isAssignableFrom(Double.class)) {
+                    field.set(ins, Double.parseDouble("0.0"));
+                } else if (ft.isAssignableFrom(double.class)) {
+                    field.setDouble(ins, 0.0);
+                }
+            }
+        } else {
+            LOGGER.warn("Cannot new instance of {}", type);
+        }
+        return ins;
     }
 
     private String tableNameFromSelect(String sql) {
@@ -381,7 +438,7 @@ public class DumpSql implements InitializingBean {
     }
 
     private String strip(String val) {
-        return StringUtils.strip(val, "`");
+        return CommentUtils.stripEscape(val);
     }
 
     private String tableNameFromCreate(String sql) {
@@ -411,33 +468,21 @@ public class DumpSql implements InitializingBean {
         return null;
     }
 
-    private String getSql(SqlSource source) {
-        return getSql(source, null);
+    private String strip2Line(String sql) {
+        return CommentUtils.strip2Line(sql);
     }
-
-    static final String LINE_SEPARATOR = System.getProperty("line.separator");
 
     private String getSql(SqlSource source, Object parameterObject) {
         String sql = null;
         try {
             var bs = source.getBoundSql(parameterObject);
-            sql = bs.getSql();
-            String raw = Arrays.stream(sql.split(LINE_SEPARATOR))
-                    .map(line -> {
-                        // trim line comment
-                        int idx = line.indexOf("--");
-                        if (idx > 0) {
-                            return line.substring(0, idx);
-                        }
-                        return line;
-                    }).collect(Collectors.joining(" "));
-            sql = raw.replaceAll("\\s+", " ").trim();
+            sql = strip2Line(bs.getSql());
             if (!isNullOrEmpty(sql)) {
                 var stmt = CCJSqlParserUtil.parse(sql);
             }
             return sql;
         } catch (Exception e) {
-            LOGGER.error("SQL {}", sql, e);
+            LOGGER.error("SQL {}, Context {}", sql, parameterObject, e);
         }
         return "";
     }

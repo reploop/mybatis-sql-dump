@@ -48,36 +48,38 @@ public class EntityDiagram {
     @Resource
     private Configuration cfg;
 
-    public void generate(Set<Class<?>> types, Map<Class<?>, ResultMap> typedMap, Map<Class<?>, Set<String>> typeTable, List<String> all) {
+    public void generate(List<String> all) {
         String nodeFormat = "%s [shape=plain label=<%s>];";
         String edgeFormat = "%s:%s -- %s:%s;";
         StringBuilder digraph = new StringBuilder();
         digraph.append("graph ERD {").append(lineSeparator());
         var associates = analyse(all);
+        // all table and it's columns.
         Map<String, Set<String>> tables = collect(associates);
+
         // All nodes
-        handle(types, typedMap, typeTable, (table, mappings) -> {
-            String label = label(table, mappings, tables.getOrDefault(table, Collections.emptySet()));
+        tables.forEach((table, columns) -> {
+            String label = label(table, columns);
             String node = String.format(nodeFormat, table, label);
             digraph.append(node).append(lineSeparator());
         });
 
         // All edges
-        handle(types, typedMap, typeTable, (table, mappings) -> {
-            for (var mapping : mappings) {
-                String column = mapping.getColumn();
+        tables.forEach((table, columns) -> {
+            for (String column : columns) {
                 TableColumn left = new TableColumn(table, column);
                 List<TableColumn> tcs = associates.get(left);
                 if (!isEmpty(tcs)) {
-                    // tcs
                     for (TableColumn right : tcs) {
+                        if (markIfAbsent(left, right) || markIfAbsent(right, left)) {
+                            continue;
+                        }
                         String edge = String.format(edgeFormat, left.table(), left.column(), right.table(), right.column());
                         digraph.append(edge).append(lineSeparator());
                     }
                 }
             }
         });
-
         digraph.append("}").append(lineSeparator());
 
         try (BufferedWriter writer = newBufferedWriter(Paths.get("/tmp/dump.dot"), UTF_8, CREATE, TRUNCATE_EXISTING, WRITE)) {
@@ -89,6 +91,20 @@ public class EntityDiagram {
         System.out.println();
     }
 
+    private final Map<TableColumn, Map<TableColumn, Boolean>> drawn = new HashMap<>();
+
+    private boolean markIfAbsent(TableColumn left, TableColumn right) {
+        Map<TableColumn, Boolean> exists = drawn.computeIfAbsent(left, tc -> new HashMap<>());
+        Boolean old = exists.putIfAbsent(right, Boolean.TRUE);
+        return null != old;
+    }
+
+    /**
+     * Collect table and it's columns
+     *
+     * @param associates associates
+     * @return tables has associates with other tables;
+     */
     private Map<String, Set<String>> collect(Map<TableColumn, List<TableColumn>> associates) {
         Map<String, Set<String>> tables = new HashMap<>();
         associates.forEach((key, values) -> {
@@ -117,6 +133,20 @@ public class EntityDiagram {
                 var mappings = resultMap.getResultMappings();
                 tf.accept(table, mappings);
             }
+        }
+    }
+
+    private String label(String table, Set<String> columns) {
+        Map<String, Object> model = new HashMap<>();
+        model.put("name", table);
+        model.put("columns", columns);
+        try {
+            Template template = cfg.getTemplate("table.ftl");
+            StringWriter writer = new StringWriter();
+            template.process(model, writer);
+            return writer.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException(model.toString(), e);
         }
     }
 

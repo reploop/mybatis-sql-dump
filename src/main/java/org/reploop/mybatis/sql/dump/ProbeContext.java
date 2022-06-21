@@ -37,18 +37,19 @@ public class ProbeContext {
 
     /**
      * Lower is higher.
+     * See for details <a href="https://docs.oracle.com/javase/tutorial/java/nutsandbolts/operators.html">Java Operator Precedence</a>
      */
     private static final Map<String, Integer> precedences = Map.ofEntries(
-            Map.entry("eval", 6),
-            Map.entry("ASTNot", 6),
-            Map.entry("ASTOr", 5),
-            Map.entry("ASTAnd", 4),
-            Map.entry("ASTEq", 3),
-            Map.entry("ASTNotEq", 3),
+            Map.entry("eval", 7),
+            Map.entry("ASTOr", 6),
+            Map.entry("ASTAnd", 5),
+            Map.entry("ASTEq", 4),
+            Map.entry("ASTNotEq", 4),
             Map.entry("ASTLess", 3),
             Map.entry("ASTLessEq", 3),
             Map.entry("ASTGreater", 3),
             Map.entry("ASTGreaterEq", 3),
+            Map.entry("ASTNot", 1),
             Map.entry("ASTNegate", 1),
             Map.entry("ASTChain", 1),
             Map.entry("size", 1)

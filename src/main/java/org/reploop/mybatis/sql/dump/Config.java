@@ -18,7 +18,7 @@ import java.util.Set;
 
 @Configuration
 public class Config {
-    @Value("${workingDirectory:/Users/george/vfx/sources/be/excalibur}")
+    @Value("${workingDirectory}")
     private String workingDirectory;
     @Value("${configLocation:classpath:mybatis/mybatis-config.xml}")
     private Resource mybatisConfig;

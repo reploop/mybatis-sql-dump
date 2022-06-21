@@ -25,6 +25,7 @@ public class Config {
 
     @Bean
     public DataSource dummy() {
+        // We do NOT connect to any database, but need a non-null datasource instance.
         return new DummyDataSource();
     }
 
@@ -76,13 +77,17 @@ public class Config {
         return resources.toArray(new Resource[0]);
     }
 
+    /**
+     * Set custom classloader to load mapper related classes.
+     *
+     * @param cps classpath for java classes.
+     */
     private void setClassLoader(Set<String> cps) {
         ClassLoader parent = Resources.getDefaultClassLoader();
         if (null == parent) {
             parent = Thread.currentThread().getContextClassLoader();
         }
         MapperClassLoader mcl = new MapperClassLoader(parent, cps);
-        //Thread.currentThread().setContextClassLoader(mcl);
         Resources.setDefaultClassLoader(mcl);
     }
 

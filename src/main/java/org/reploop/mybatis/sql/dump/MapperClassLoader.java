@@ -20,10 +20,6 @@ public class MapperClassLoader extends ClassLoader {
         this.cps = cps;
     }
 
-    public MapperClassLoader(Set<String> cps) {
-        this.cps = cps;
-    }
-
     private Path toClassFile(String name) {
         return Paths.get(name.replace(DOT, File.separatorChar) + ".class");
     }

@@ -7,6 +7,9 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.logging.Logger;
 
+/**
+ * Dummy datasource need nothing to initializing.
+ */
 public class DummyDataSource implements DataSource {
     @Override
     public Connection getConnection() throws SQLException {

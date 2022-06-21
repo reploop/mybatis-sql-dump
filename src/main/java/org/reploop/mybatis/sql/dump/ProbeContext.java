@@ -9,12 +9,23 @@ import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
+/**
+ * Postorder expression evaluated by using two stack.
+ */
 public class ProbeContext {
     private static final Logger LOG = LoggerFactory.getLogger(ProbeContext.class);
     Stack<Object> operands = new Stack<>();
     Stack<Operator> operators = new Stack<>();
 
-    Map<String, Object> params = new HashMap<>();
+    public ProbeContext(Map<String, Object> params) {
+        this.params = params;
+    }
+
+    public ProbeContext() {
+        this(new HashMap<>());
+    }
+
+    final Map<String, Object> params;
 
     void pushOperand(Object operand) {
         operands.push(operand);
@@ -359,8 +370,6 @@ public class ProbeContext {
         return params.get(key);
     }
 
-    private static final String EMPTY = "";
     private static final Object NULL = null;
     private static final Object NON_NULL = new Object();
-    private static final String NOT_EMPTY = "str_placeholder";
 }

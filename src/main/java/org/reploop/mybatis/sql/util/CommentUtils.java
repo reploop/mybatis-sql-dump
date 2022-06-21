@@ -79,12 +79,9 @@ public class CommentUtils {
             }
             // */
             if (prev == st && curr == fs) {
-                if (!ops.isEmpty()) {
-                    Next expect = ops.peek();
-                    if (expect == Next.BLOCK_COMMENT) {
-                        ops.pop();
-                        continue;
-                    }
+                if (ops.peek() == Next.BLOCK_COMMENT) {
+                    ops.pop();
+                    continue;
                 }
             }
             if (ops.peek() == Next.START) {
